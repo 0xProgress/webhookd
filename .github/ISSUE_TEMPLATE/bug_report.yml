@@ -1,0 +1,79 @@
+name: Bug report
+description: Something isn't working correctly
+labels: ["bug", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before opening a bug report, check [existing issues](https://github.com/0xProgress/webhookd/issues)
+        and [discussions](https://github.com/0xProgress/webhookd/discussions) first.
+
+  - type: input
+    id: version
+    attributes:
+      label: webhookd version
+      description: Output of `webhookd --version`
+      placeholder: "v0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: provider
+    attributes:
+      label: Provider
+      description: Which provider are you using? Use `mock` or `core` if not provider-specific.
+      placeholder: "github"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system and architecture
+      placeholder: "linux/amd64, darwin/arm64, etc."
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected to happen
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What actually happened
+      description: |
+        Include stderr output. Redact any secrets, tokens, and real webhook payloads
+        before pasting. Replace them with placeholder values.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: |
+        Minimal commands. A curl invocation that reproduces the issue is ideal.
+        Use a fabricated payload — do not paste real webhook data.
+      placeholder: |
+        1. Export PROVIDER_WEBHOOK_SECRET=test-secret
+        2. Run: webhookd github --port 8080
+        3. Send: curl -X POST http://localhost:8080/github \
+             -H "X-Hub-Signature-256: sha256=..." \
+             -H "X-GitHub-Event: push" \
+             -d '{}'
+        4. See error: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Any relevant configuration
+      description: Flags passed to webhookd. Redact secret values.
+      placeholder: "webhookd github --port 8080 --path /hooks/github"
+    validations:
+      required: false

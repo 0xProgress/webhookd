@@ -1,0 +1,70 @@
+name: Provider request
+description: Request support for a new webhook provider
+labels: ["provider", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check [existing provider issues](https://github.com/0xProgress/webhookd/issues?q=label%3Aprovider)
+        before opening a new request. Someone may already be working on it.
+
+        If you plan to implement it yourself, this issue becomes your claim.
+        Comment on an existing issue before starting work to avoid duplicates.
+
+  - type: input
+    id: name
+    attributes:
+      label: Provider name
+      description: |
+        Lowercase. This will be the CLI subcommand (`webhookd <name>`) and
+        the `"provider"` field in output.
+      placeholder: "shopify"
+    validations:
+      required: true
+
+  - type: input
+    id: docs
+    attributes:
+      label: Link to official webhook documentation
+      description: The provider's own docs describing their webhook format and signature scheme.
+      placeholder: "https://shopify.dev/docs/apps/webhooks/configuration/https"
+    validations:
+      required: true
+
+  - type: textarea
+    id: signature
+    attributes:
+      label: Signature scheme
+      description: |
+        Describe how the provider signs requests. Include:
+        - Which HTTP header carries the signature
+        - The signature format (e.g. `sha256=<hex>`, `v0=<hmac>`)
+        - What data is signed (body only, body + timestamp, etc.)
+        - Whether a timestamp is included and how old requests are rejected
+      placeholder: |
+        Header: X-Shopify-Hmac-Sha256
+        Format: base64-encoded HMAC-SHA256
+        Signed data: raw request body
+        No timestamp header
+    validations:
+      required: true
+
+  - type: textarea
+    id: event_type
+    attributes:
+      label: Event type location
+      description: Where is the event type found? Header or body field?
+      placeholder: |
+        Header: X-Shopify-Topic
+        Example values: orders/create, products/update
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: intent
+    attributes:
+      label: Implementation intent
+      description: Are you planning to implement this?
+      options:
+        - label: "Yes — I intend to open a PR implementing this provider"
+        - label: "No — I am requesting that someone else implement it"

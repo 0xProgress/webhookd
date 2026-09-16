@@ -1,0 +1,18 @@
+# Global fallback — all files require review from maintainer
+*                       @0xProgress
+
+# Core interface files — extra protection, never modified without maintainer review
+/providers/provider.go  @0xProgress
+/providers/registry.go  @0xProgress
+
+# Server pipeline — critical path, maintainer review required
+/server/                @0xProgress
+/output/                @0xProgress
+
+# Infrastructure — maintainer owns all of this
+/.github/               @0xProgress
+/.goreleaser.yaml       @0xProgress
+/Makefile               @0xProgress
+/Dockerfile             @0xProgress
+/go.mod                 @0xProgress
+/go.sum                 @0xProgress
