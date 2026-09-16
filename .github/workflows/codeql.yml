@@ -27,12 +27,12 @@ jobs:
           go-version: '1.23'
           cache: true
 
-      - uses: github/codeql-action/init@v3
+      - uses: github/codeql-action/init@v4
         with:
           languages: go
           # Extend with security-and-quality for a broader ruleset
           queries: security-extended
 
-      - uses: github/codeql-action/analyze@v3
+      - uses: github/codeql-action/analyze@v4
         with:
           category: "/language:go"
