@@ -43,6 +43,15 @@ type Handler struct {
 	maxBody      int64
 }
 
+const (
+	errMethodNotAllowed      = "method not allowed"
+	errUnsupportedMediaType  = "unsupported content type"
+	errPayloadTooLarge       = "request body too large"
+	errUnknownProvider       = "unknown provider"
+	errSigVerificationFailed = "signature verification failed"
+	errInternal              = "internal error"
+)
+
 // NewHandler returns a Handler bound to the named provider.
 //
 // out receives verified events, one call per accepted request. errOut
@@ -54,6 +63,9 @@ type Handler struct {
 // read by http.MaxBytesReader, so an oversized body is never fully
 // buffered.
 func NewHandler(providerName string, out EventWriter, errOut io.Writer, maxBody int64) *Handler {
+	if errOut == nil {
+		errOut = io.Discard
+	}
 	return &Handler{
 		providerName: providerName,
 		out:          out,
@@ -67,14 +79,14 @@ func NewHandler(providerName string, out EventWriter, errOut io.Writer, maxBody 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Step 1 — method check.
 	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		writeError(w, http.StatusMethodNotAllowed, errMethodNotAllowed)
 		return
 	}
 
 	// Step 2 — content-type check. A charset suffix is permitted, so
 	// the check is a prefix match rather than an equality check.
 	if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
-		writeError(w, http.StatusUnsupportedMediaType, "unsupported content type")
+		writeError(w, http.StatusUnsupportedMediaType, errUnsupportedMediaType)
 		return
 	}
 
@@ -87,10 +99,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var maxErr *http.MaxBytesError
 		if errors.As(err, &maxErr) {
-			writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
+			writeError(w, http.StatusRequestEntityTooLarge, errPayloadTooLarge)
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, errInternal)
 		return
 	}
 
@@ -99,7 +111,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// not have.
 	provider, ok := providers.Get(h.providerName)
 	if !ok {
-		writeError(w, http.StatusNotFound, "unknown provider")
+		writeError(w, http.StatusNotFound, errUnknownProvider)
 		return
 	}
 
@@ -109,7 +121,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// to the event stream on a failed verification.
 	if err := provider.Verify(r, rawBody); err != nil {
 		fmt.Fprintf(h.errOut, "webhookd: %s — %s\n", err.Error(), remoteIP(r))
-		writeError(w, http.StatusUnauthorized, "signature verification failed")
+		writeError(w, http.StatusUnauthorized, errSigVerificationFailed)
 		return
 	}
 
@@ -126,7 +138,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// case of a valid signature over a body that is not JSON at all,
 	// which is a provider-integration error, not an attack.
 	if !json.Valid(rawBody) {
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, errInternal)
 		return
 	}
 
@@ -147,9 +159,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// failure is a diagnostic, not a data-line failure: nothing was
 	// written to the event stream, and the client learns the request
 	// was not recorded.
+	if h.out == nil {
+		fmt.Fprintf(h.errOut, "webhookd: write event: nil EventWriter\n")
+		writeError(w, http.StatusInternalServerError, errInternal)
+		return
+	}
 	if err := h.out.Write(event); err != nil {
 		fmt.Fprintf(h.errOut, "webhookd: write event: %v\n", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, errInternal)
 		return
 	}
 

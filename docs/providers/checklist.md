@@ -18,7 +18,7 @@ box must be checked before the PR is ready for review.
 - [ ] I have commented on the issue to claim it
 - [ ] I have read the provider's official webhook documentation
 - [ ] I have read [CONTRIBUTING.md §"Adding a Provider"](../../CONTRIBUTING.md#adding-a-provider) end to end
-- [ ] I have read [docs/contributing/provider-guide.md](provider-guide.md)
+- [ ] I have read [CONTRIBUTING.md §"Adding a Provider"](../../CONTRIBUTING.md#adding-a-provider)
 - [ ] I have read [providers/provider.go](../../providers/provider.go) — the interface doc comments
 
 ---

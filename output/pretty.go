@@ -38,6 +38,9 @@ type PrettyWriter struct {
 
 // NewPrettyWriter returns a PrettyWriter that emits to w.
 func NewPrettyWriter(w io.Writer) *PrettyWriter {
+	if w == nil {
+		w = io.Discard
+	}
 	return &PrettyWriter{w: w}
 }
 

@@ -10,15 +10,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/0xProgress/webhookd/output"
-	"github.com/0xProgress/webhookd/server"
 
 	_ "github.com/0xProgress/webhookd/providers/mock"
+	"github.com/0xProgress/webhookd/server"
 )
 
 // syncBuffer is a bytes.Buffer guarded by a mutex.
@@ -470,5 +471,42 @@ func TestStartupBanner(t *testing.T) {
 		emDash, ln.Addr().String())
 	if got := stderr.String(); got != want {
 		t.Fatalf("banner =\n  %q\nwant:\n  %q", got, want)
+	}
+}
+
+func TestHandlerNilWriter(t *testing.T) {
+	stderr := &syncBuffer{}
+	// Construct handler with a nil EventWriter to ensure no panics occur when serving a request
+	h := server.NewHandler("mock", nil, stderr, 2*1024*1024)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/mock", strings.NewReader(`{"type":"test","id":"evt_1"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Mock-Signature", "valid")
+
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rec.Code)
+	}
+	if !strings.Contains(stderr.String(), "webhookd: write event: nil EventWriter") {
+		t.Fatalf("stderr did not log nil EventWriter: %q", stderr.String())
+	}
+}
+
+func TestWriterNilOutput(t *testing.T) {
+	w := output.NewWriter(nil)
+	evt := &output.Event{
+		Provider: "mock",
+		Verified: true,
+		Payload:  []byte("{}"),
+	}
+	if err := w.Write(evt); err != nil {
+		t.Fatalf("Writer.Write with nil w returned error: %v", err)
+	}
+
+	pw := output.NewPrettyWriter(nil)
+	if err := pw.Write(evt); err != nil {
+		t.Fatalf("PrettyWriter.Write with nil w returned error: %v", err)
 	}
 }

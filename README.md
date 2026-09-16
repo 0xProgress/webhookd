@@ -54,7 +54,7 @@ Requires Go 1.27.0 or later.
 ```bash
 docker run --rm -p 8080:8080 \
   -e GITHUB_WEBHOOK_SECRET=your_secret \
-  ghcr.io/0xprogress/webhookd:latest github
+  ghcr.io/0xprogress/webhookd:latest github --host 0.0.0.0
 ```
 
 ### Binary
@@ -368,7 +368,7 @@ The most impactful contribution is **adding a provider**. It is a well-scoped,
 well-documented process:
 
 1. Find or open the provider issue.
-2. Read the [provider guide](docs/contributing/provider-guide.md).
+2. Read [CONTRIBUTING.md](CONTRIBUTING.md).
 3. Implement against the `Provider` interface under `providers/<name>/`.
 4. Add `cmd/<name>.go`, write tests, write the doc file, run `make check`.
 5. Open a PR.
