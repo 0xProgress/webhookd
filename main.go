@@ -1,4 +1,6 @@
 // Command webhookd is the entry point for the webhookd binary.
+// 
+// 0xProgress
 //
 // webhookd listens for webhook HTTP requests, verifies their
 // signatures, and writes one JSONL line per verified event to stdout.
