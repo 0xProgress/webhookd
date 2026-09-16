@@ -1,0 +1,43 @@
+# Configuration for golangci-lint.
+#
+# The default set of linters (errcheck, govet, ineffassign, staticcheck,
+# unused) is enabled via `default: standard`. Four extras are added:
+#
+#   bodyclose  — catches HTTP response bodies that are not closed, which
+#                matters for the client-side code in server_test.go.
+#   gosec      — security-focused checks. This tool verifies signatures;
+#                a dependency-free security linter is cheap insurance.
+#   misspell   — catches typos in comments and string literals.
+#   gofmt /    — formatters, not linters. Included so CI catches files
+#   goimports    that were saved without running `make fmt` locally.
+#
+# The Makefile runs this via `golangci-lint run ./...`, as the `lint`
+# target. `make check` chains fmt → vet → lint → test.
+
+version: "2"
+
+run:
+  # The default 1m timeout is tight for a cold CI run that includes
+  # race-instrumented tests. 5m gives headroom without being effectively
+  # unbounded.
+  timeout: 5m
+  tests: true
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - gosec
+    - misspell
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+issues:
+  # Do not cap the number of issues reported. The codebase is small; if
+  # a change produces fifty warnings, the reviewer wants to see all
+  # fifty, not a truncated list.
+  max-same-issues: 0
+  max-issues-per-linter: 0

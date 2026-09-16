@@ -51,24 +51,27 @@ Every request follows this order. The order is mandatory — deviating from it
 breaks signature verification.
 
 ```
-1.  Enforce body size limit (default 2MB)
-2.  Read entire raw body into []byte
-3.  Look up provider in registry by name
-4.  Call provider.Verify(request, rawBody)
-5.  If error:
+1.  Reject if method is not POST (405)
+2.  Reject if Content-Type is not application/json (415)
+3.  Wrap r.Body in http.MaxBytesReader(w, r.Body, maxBody)
+4.  Read entire raw body into []byte — a read error from step 3's wrapper
+    is reported as 413, any other read error as 500
+5.  Look up provider in registry by name (404 if not found)
+6.  Call provider.Verify(request, rawBody)
+7.  If error:
       → write error to stderr
       → respond 401
       → return — nothing goes to stdout
-6.  Call provider.EventType(request, rawBody)
-7.  Call provider.DeliveryID(request)
-8.  Call provider.EventID(request, rawBody)
-9.  JSON-decode payload from rawBody
-10. Build normalized Event struct
-11. Write one JSONL line to stdout
-12. Respond 200 {"ok": true}
+8.  Call provider.EventType(request, rawBody)
+9.  Call provider.DeliveryID(request)
+10. Call provider.EventID(request, rawBody)
+11. Validate that rawBody is syntactically valid JSON (500 if not)
+12. Build normalized Event struct
+13. Write one JSONL line to stdout
+14. Respond 200 {"ok": true}
 ```
 
-Steps 2 and 9 use the same bytes. The raw body is captured once and never
+Steps 4 and 11 use the same bytes. The raw body is captured once and never
 re-encoded. If a provider hashes the body, it hashes the same bytes the caller
 will eventually see in `payload`. This is the single most important invariant
 in the codebase.
@@ -145,17 +148,24 @@ Registering the same name twice means two packages think they own the same
 subcommand, and there is no correct way to resolve that at runtime.
 
 Registration happens through `init()` rather than an explicit registration
-list in `main.go` so that adding a community provider is one blank import:
+list in `main.go` so that the wiring for a provider is a single import in the
+provider's own `cmd/<name>.go` file. The core does not need to know the
+provider exists until a request arrives for it.
 
-```go
-import (
-    _ "github.com/0xProgress/webhookd/providers/shopify"
-)
+All providers live in this repository, under `providers/<name>/`. A provider
+is added by a PR that touches three files:
+
+```
+providers/<name>/<name>.go        — the Provider implementation
+providers/<name>/<name>_test.go   — the tests
+cmd/<name>.go                     — the subcommand, which imports the above
 ```
 
-The blank import runs the provider's `init()`, which calls `Register`. Nothing
-else is required. The core does not need to know the provider exists until a
-request arrives for it.
+`cmd/<name>.go` declares the subcommand, wires it into the root command, sets
+any provider-specific defaults (for example, the conventional environment
+variable name for the signing secret), and imports the provider package so
+that its `init()` runs. That import is what registers the provider. Nothing
+else in the codebase needs to change.
 
 `Get` and `All` are the read side. `Get` is called once per request, after the
 provider name is extracted from the URL path. `All` is called once at startup
@@ -194,11 +204,20 @@ provider generated the event. Provider timestamps, when present, live inside
 `payload`. This distinction matters when the two are far apart, which is
 usually a sign of replay or clock skew.
 
-`payload` is the full parsed JSON body, unmodified. webhookd does not strip,
-reshape, or interpret it. If you need the raw bytes exactly as the provider
-sent them, they are in `payload` as a decoded object — the original bytes are
-not preserved on stdout because JSONL is line-oriented and raw bytes can
-contain newlines.
+`payload` is the full JSON body of the request. Key order, duplicate keys, and
+numeric precision are preserved exactly as the provider sent them: the body is
+passed through the core as raw bytes and stored in the `Event` as
+`json.RawMessage`, not decoded into a Go map. Decoding into `map[string]any`
+would re-sort keys, collapse duplicates, and convert every number to
+`float64` — the float64 conversion silently loses precision on integers above
+2^53, which includes real payment amounts. That is a reshape, and the output
+contract forbids reshaping.
+
+The only transformation applied to `payload` is whitespace normalisation
+performed by the JSONL encoder: the value is emitted compact on one line, with
+insignificant whitespace removed and any embedded newlines escaped. This is
+what makes the output line-oriented. The underlying structure and values are
+unchanged.
 
 ---
 
@@ -228,6 +247,10 @@ carries the human-readable form instead. This is a deliberate trade-off — pret
 mode exists for live demos and manual inspection, where piping is not the goal.
 The startup banner still goes to stderr in both modes.
 
+The exact format of the startup banner and of failed-verification lines is
+fixed by `docs/webhookd-core.md`. Everything else on stderr is free-form and
+not a contract.
+
 ---
 
 ## Security model
@@ -239,11 +262,15 @@ a developer machine and explicit when exposed.
 | ------------------- | ------------------------------------------------------------------------ |
 | Signature forgery   | Provider `Verify()` uses `hmac.Equal()` for constant-time comparison     |
 | Replay              | Providers that support timestamps reject requests older than 300 seconds |
-| Body flooding       | Body size limit enforced before read, default 2MB                        |
+| Body flooding       | Body size limit enforced during read, default 2MB                        |
 | Slowloris           | Read and write timeouts of 10 seconds                                    |
 | Accidental exposure | Default bind is `127.0.0.1`; `0.0.0.0` requires `--host`                 |
 | Secret leakage      | Secrets are read from environment variables, never from flags            |
 | Log injection       | Payload content is never interpolated into log lines unsanitized         |
+
+The body size limit is enforced with `http.MaxBytesReader`, which rejects
+during the read rather than after it. An oversized body is never fully
+buffered.
 
 The core cannot verify that a provider's `Verify()` is correct. It can only
 verify that the provider called `Register`, that it returned nil or an error,
@@ -295,17 +322,18 @@ would make webhookd a different tool.
 
 There are exactly two ways to extend webhookd:
 
-1. **Add a provider.** Implement the `Provider` interface, call `Register` in
-   `init()`, add a subcommand file in `cmd/`. See [CONTRIBUTING.md](../CONTRIBUTING.md).
+1. **Add a provider.** Implement the `Provider` interface under
+   `providers/<name>/`, add a `cmd/<name>.go` subcommand, and open a PR. See
+   [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 2. **Pipe the output somewhere.** The JSONL contract is stable. Anything that
    reads newline-delimited JSON can consume webhookd's output.
 
 There is no plugin system, no configuration file, no dynamic loading. A
-provider is a Go package. Adding it means rebuilding the binary. This is
-deliberate: a static binary with a fixed set of providers is easier to audit
-than a dynamic loader, and the build is fast enough that this is not a real
-constraint.
+provider is a Go package in this repository. Adding it means rebuilding the
+binary. This is deliberate: a static binary with a fixed set of providers is
+easier to audit than a dynamic loader, and the build is fast enough that this
+is not a real constraint.
 
 ---
 
@@ -313,8 +341,8 @@ constraint.
 
 The core is complete and shippable before any real provider exists. The mock
 provider exercises the full pipeline and is the reference implementation for
-contributors. Real providers — `github`, `stripe`, `slack` — are separate PRs
-against a frozen core.
+contributors. Real providers — `github`, `stripe`, `slack`, `shopify` — are
+separate PRs against a frozen core.
 
 This ordering exists so that the core's interface can be reviewed, tested, and
 released without the pressure of a specific provider shaping it. If the first
