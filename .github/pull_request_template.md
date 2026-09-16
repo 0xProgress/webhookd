@@ -37,7 +37,7 @@ Skip this section if this is not a provider PR.
 - [ ] Official webhook documentation link:
 - [ ] `docs/providers/<name>.md` written from `docs/providers/TEMPLATE.md`, every section filled
 - [ ] All items on the self-review checklist in `CONTRIBUTING.md` are checked
-- [ ] No new dependencies in `go.mod`
+- [ ] Provider code imports only standard-library packages
 - [ ] Test vectors are real — taken from the provider's official docs, not fabricated
 - [ ] Both valid-signature and tampered-body test cases are present
 

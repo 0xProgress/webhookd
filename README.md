@@ -47,7 +47,7 @@ brew install 0xProgress/tap/webhookd
 go install github.com/0xProgress/webhookd@latest
 ```
 
-Requires Go 1.21 or later.
+Requires Go 1.27.0 or later.
 
 ### Docker
 
@@ -118,6 +118,10 @@ That's the whole tool. Everything below is providers and flags.
 
 ## Providers
 
+All providers ship in this repository, under `providers/<name>/`. There is no
+external provider mechanism — a new provider is a PR, not a separate module.
+The set of providers a given binary supports is fixed at build time.
+
 | Provider | Status | Signature | Timestamp check | Notes |
 |---|---|---|---|---|
 | `mock` | ✅ built-in | `X-Mock-Signature: valid` | No | Reference implementation. Not for production. |
@@ -165,7 +169,8 @@ export STRIPE_WEBHOOK_SECRET=whsec_...
 webhookd stripe --secret-env STRIPE_WEBHOOK_SECRET
 ```
 
-For providers with a conventional variable name, `--secret-env` defaults to it:
+For providers with a conventional variable name, the subcommand supplies the
+default, so the flag can be omitted:
 
 ```bash
 export GITHUB_WEBHOOK_SECRET=...
@@ -200,7 +205,7 @@ webhookd github --pretty
 ```
 
 ```
-GitHub
+github
 ──────────────────────────────────────
 ✓ Signature verified
 
@@ -213,6 +218,9 @@ Received:     2026-09-15T19:44:03Z
   "number": 421
 }
 ```
+
+The header line is the provider's lowercase name. The core does not know how to
+title-case `github` into `GitHub`, and it does not pretend to.
 
 **Custom path behind a reverse proxy:**
 
@@ -247,7 +255,15 @@ The shape is identical across every provider:
 | `id` | string | Event ID if the provider supplies one, else `""` |
 | `delivery_id` | string | Delivery or request ID if supplied, else `""` |
 | `received_at` | string | ISO 8601 UTC timestamp of receipt |
-| `payload` | object | Full parsed JSON body, unmodified |
+| `payload` | object | Full JSON body, unmodified in structure and values |
+
+All seven fields are always present. Fields without a value are emitted as `""`,
+never omitted.
+
+`payload` preserves key order, duplicate keys, and numeric precision exactly as
+the provider sent them. The only change is whitespace normalisation: the value
+is emitted compact on one line with insignificant whitespace removed and any
+embedded newlines escaped, which is what makes the output line-oriented.
 
 ### stdout vs stderr
 
@@ -280,7 +296,7 @@ webhookd: github: signature mismatch — 203.0.113.4
 | Wrong method | `405 Method Not Allowed` | `{"error": "method not allowed"}` |
 | Body too large | `413 Payload Too Large` | `{"error": "request body too large"}` |
 | Bad content type | `415 Unsupported Media Type` | `{"error": "unsupported content type"}` |
-| Internal error | `500 Internal Server Error` | `{"error": "internal error"}` |
+| Malformed JSON body | `500 Internal Server Error` | `{"error": "internal error"}` |
 
 ### Health endpoint
 
@@ -306,7 +322,8 @@ when exposed.
 - **Signature verification is constant-time.** Every provider uses `hmac.Equal()`.
 - **Timestamps are enforced.** Providers that send a signed timestamp reject
   requests older than 300 seconds.
-- **Body size is capped.** Default 2MB, enforced before the body is read.
+- **Body size is capped.** Default 2MB, enforced during the read via
+  `http.MaxBytesReader` — an oversized body is never fully buffered.
 - **Read and write timeouts are 10 seconds.** Connections cannot hang the process.
 - **Secrets never appear on the command line.** Only the *name* of the environment
   variable is passed via `--secret-env`.
@@ -320,7 +337,7 @@ To report a vulnerability, see [SECURITY.md](SECURITY.md). Do not open a public 
 
 ## Build from source
 
-**Requirements:** Go 1.21+, `make`, optionally `golangci-lint`.
+**Requirements:** Go 1.27.0+, `make`, optionally `golangci-lint`.
 
 ```bash
 git clone https://github.com/0xProgress/webhookd
@@ -352,8 +369,8 @@ well-documented process:
 
 1. Find or open the provider issue.
 2. Read the [provider guide](docs/contributing/provider-guide.md).
-3. Implement against the `Provider` interface.
-4. Write tests, write the doc file, run `make check`.
+3. Implement against the `Provider` interface under `providers/<name>/`.
+4. Add `cmd/<name>.go`, write tests, write the doc file, run `make check`.
 5. Open a PR.
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before you start. It covers the provider
@@ -372,7 +389,9 @@ It captures the raw body, hands it to a registered provider, and writes the resu
 Three decisions shape everything else:
 
 1. **Raw body first.** The bytes are captured before anything else touches the
-   request and are never re-encoded. Verification and parsing see the same bytes.
+   request and are never re-encoded. Verification and parsing see the same bytes,
+   and `payload` preserves them — key order, duplicate keys, and numeric precision
+   all survive to the consumer.
 2. **stdout is data, stderr is everything else.** This is what makes `| jq` work
    without filters or `2>/dev/null`.
 3. **Providers are leaf nodes.** A provider verifies a signature and extracts four

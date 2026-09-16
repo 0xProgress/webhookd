@@ -6,9 +6,15 @@
 
 ## What This Document Covers
 
-This is the build document for the **core** of webhookd. No providers are included in the core. The core is the complete, working foundation that providers are built on top of.
+This is the build document for the **core** of webhookd. The core is the
+complete, working foundation that providers are built on top of. It ships
+with one provider — `mock` — which exists as a reference implementation and
+as the test double for the server pipeline. No real provider (`github`,
+`stripe`, `slack`, `shopify`) is part of the core.
 
-When the core ships, it is fully functional — it just has no built-in providers yet. A developer can implement a provider against this core on day one.
+When the core ships, it is fully functional — it accepts webhooks, verifies
+them, and streams verified events to stdout. A developer can implement a
+provider against this core on day one.
 
 ---
 
@@ -59,15 +65,29 @@ Every provider, regardless of implementation, produces this exact structure on s
 | `id` | string | no | Event ID if the provider supplies one, else `""` |
 | `delivery_id` | string | no | Delivery/request ID if the provider supplies one, else `""` |
 | `received_at` | string | yes | ISO 8601 UTC timestamp of receipt |
-| `payload` | object | yes | Full parsed JSON body |
+| `payload` | object | yes | Full JSON body of the request |
 
-`verified` is always `true` on stdout. A failed verification produces a 401 response and a stderr log line. Nothing goes to stdout.
+`verified` is always `true` on stdout. A failed verification produces a 401
+response and a stderr log line. Nothing goes to stdout.
+
+**All seven fields are always present.** Fields without a value are emitted as
+`""` (empty string), never omitted. The shape is identical for every event from
+every provider — that is what makes `webhookd | jq` work without a
+provider-specific filter.
+
+`payload` is emitted from the raw request bytes. Key order, duplicate keys, and
+numeric precision are preserved exactly as the provider sent them. The only
+transformation applied is whitespace normalisation performed by the JSONL
+encoder: the value is emitted compact on one line, with insignificant
+whitespace removed and embedded newlines escaped. Structure and numbers are
+not touched.
 
 ---
 
 ## The Provider Interface
 
-This is the single most important thing in the codebase. Every provider — built-in or community — implements this contract exactly.
+This is the single most important thing in the codebase. Every provider
+implements this contract exactly.
 
 ```go
 package providers
@@ -144,7 +164,7 @@ func All() []string {
 }
 ```
 
-Built-in providers register in `init()`:
+Every provider registers itself in `init()`:
 
 ```go
 func init() {
@@ -152,13 +172,25 @@ func init() {
 }
 ```
 
-Community providers do the same. Adding a community provider to a build is one blank import:
+**All providers live in this repository**, under `providers/<name>/`. There is
+no external provider mechanism: a new provider is a PR against this repo, not
+a separate module that users import. The set of providers a binary supports is
+fixed at build time.
 
-```go
-import (
-	_ "github.com/community/webhookd-shopify"
-	_ "github.com/community/webhookd-discord"
-)
+A provider package's `init()` runs because its `cmd/<name>.go` file imports the
+package. That command file is also where the provider's subcommand is wired
+into the CLI and where any provider-specific defaults are declared — for
+example, the conventional environment variable name for the signing secret.
+Nothing else in the codebase needs to know the provider exists: the `init()`
+call performs registration, and the registry is what the server consults at
+request time.
+
+Adding a provider is therefore three files in one PR:
+
+```
+providers/<name>/<name>.go        — the Provider implementation
+providers/<name>/<name>_test.go   — the tests
+cmd/<name>.go                     — the subcommand, which imports the above
 ```
 
 ---
@@ -168,10 +200,11 @@ import (
 ```
 webhookd/
 │
-├── main.go                        # Entry point — wires cobra root
+├── main.go                        # Entry point — wires the root command
 │
 ├── cmd/
-│   └── root.go                    # Root cobra command, shared flags, provider dispatch
+│   ├── root.go                    # Root command, shared flags, provider dispatch
+│   └── <name>.go                  # One file per provider subcommand
 │
 ├── server/
 │   ├── server.go                  # HTTP listener, routing, timeouts
@@ -187,32 +220,53 @@ webhookd/
 │       └── mock_test.go
 │
 ├── output/
+│   ├── event.go                   # Normalized Event struct
 │   ├── writer.go                  # JSONL writer to stdout
-│   ├── pretty.go                  # Human-readable formatter
-│   └── event.go                   # Normalized Event struct
+│   └── pretty.go                  # Human-readable formatter
 │
 ├── config/
 │   └── config.go                  # Flag + env resolution, Config struct
 │
 ├── docs/
 │   ├── architecture.md            # How the core works
+│   ├── webhookd-core.md           # This document — the build spec
 │   ├── providers/
 │   │   └── TEMPLATE.md            # Provider documentation template
 │   └── contributing/
 │       ├── provider-guide.md      # Full guide for writing a provider
 │       └── checklist.md           # Provider checklist
 │
-├── .github/
-│   └── workflows/                 # See repo-workflows document
+├── scripts/
+│   ├── AGENTS.md                  # Operating instructions for AI coding agents
+│   └── setup-repo.sh
 │
-├── CONTRIBUTING.md
+├── .github/
+│   ├── CODEOWNERS
+│   ├── dependabot.yml
+│   ├── ISSUE_TEMPLATE/
+│   ├── pull_request_template.md
+│   ├── SECURITY.md
+│   └── workflows/
+│       ├── ci.yml
+│       ├── codeql.yml
+│       └── release.yml
+│
+├── .commitlintrc.json
+├── .gitignore
+├── .goreleaser.yaml
+├── .golangci.yml
 ├── CHANGELOG.md
+├── CONTRIBUTING.md
+├── Dockerfile
 ├── LICENSE
 ├── Makefile
-├── Dockerfile
-├── .goreleaser.yaml
-└── README.md
+├── README.md
+├── SECURITY.md
+└── go.mod
 ```
+
+`scripts/AGENTS.md` is intentionally not committed — `scripts/` is listed in
+`.gitignore`. It is a local operating document, not a shipped artifact.
 
 ---
 
@@ -221,24 +275,41 @@ webhookd/
 This order is mandatory. Any deviation breaks signature verification.
 
 ```
-1.  Enforce body size limit (default 2MB)
-2.  Read entire raw body into []byte — store it, close nothing
-3.  Look up provider in registry by name
-4.  Call provider.Verify(request, rawBody)
-5.  If error:
+1.  Reject if method is not POST (405)
+2.  Reject if Content-Type is not application/json (415)
+3.  Wrap r.Body in http.MaxBytesReader(w, r.Body, maxBody)
+4.  Read entire raw body into []byte — a read error from step 3's wrapper
+    is reported as 413, any other read error as 500
+5.  Look up provider in registry by name (404 if not found)
+6.  Call provider.Verify(request, rawBody)
+7.  If error:
       → write error to stderr
       → respond 401
       → return — nothing goes to stdout
-6.  Call provider.EventType(request, rawBody)
-7.  Call provider.DeliveryID(request)
-8.  Call provider.EventID(request, rawBody)
-9.  JSON-decode payload from rawBody
-10. Build normalized Event struct
-11. Write one JSONL line to stdout
-12. Respond 200 {"ok": true}
+8.  Call provider.EventType(request, rawBody)
+9.  Call provider.DeliveryID(request)
+10. Call provider.EventID(request, rawBody)
+11. Validate that rawBody is syntactically valid JSON (500 if not)
+12. Build normalized Event struct
+13. Write one JSONL line to stdout
+14. Respond 200 {"ok": true}
 ```
 
-Step 2 and step 9 use the **same bytes**. Never re-encode between them.
+Steps 4 and 11 use the **same bytes**. Never re-encode between them.
+
+Step 3 uses `http.MaxBytesReader`, which returns a distinct error during the
+read in step 4 when the limit is exceeded. That error is what drives the 413
+response. The limit is therefore enforced *during* the read, not after it — an
+oversized body is never fully buffered. This is the mechanism the security
+requirement "body size limit enforced before read" refers to.
+
+Verification (step 6) runs before JSON validity is checked (step 11) and before
+`payload` is emitted. A request with a bad signature is rejected before any
+parsing of its body, so a malformed or hostile body cannot reach the decoder.
+Signature verification is a security boundary.
+
+The provider lookup in step 5 is by name; the name is extracted from the URL
+path after routing. An unknown path yields 404 before any body is read.
 
 ---
 
@@ -252,9 +323,21 @@ Step 2 and step 9 use the **same bytes**. Never re-encode between them.
 | Wrong method | `405 Method Not Allowed` | `{"error": "method not allowed"}` |
 | Body too large | `413 Payload Too Large` | `{"error": "request body too large"}` |
 | Bad content type | `415 Unsupported Media Type` | `{"error": "unsupported content type"}` |
-| Internal error | `500 Internal Server Error` | `{"error": "internal error"}` |
+| Malformed JSON body | `500 Internal Server Error` | `{"error": "internal error"}` |
 
-All error responses go to the HTTP client. Nothing goes to stdout. The error description goes to stderr.
+All error responses go to the HTTP client. Nothing goes to stdout. The error
+description goes to stderr.
+
+### Content-Type policy
+
+The core accepts requests whose `Content-Type` header begins with
+`application/json`. A missing or mismatched `Content-Type` yields 415 before
+the body is read. Real providers may send a charset suffix
+(`application/json; charset=utf-8`); the prefix match accommodates this.
+
+The policy is set by the core, not by the provider interface. A provider whose
+upstream sends a different content type (form-encoded, for example) cannot be
+supported without a change to this document.
 
 ---
 
@@ -264,7 +347,7 @@ All error responses go to the HTTP client. Nothing goes to stdout. The error des
 |-------------|------|
 | MAC comparison | `hmac.Equal()` only. Never `==`. Never string comparison. |
 | Timestamp validation | Where provider supports it: reject if older than 300 seconds |
-| Body size limit | Default 2MB. Configurable via `--max-body`. Enforced before read. |
+| Body size limit | Default 2MB. Configurable via `--max-body`. Enforced during read via `http.MaxBytesReader`. |
 | Read timeout | 10 seconds default. Connections cannot hang. |
 | Write timeout | 10 seconds default. |
 | Bind address | Default `127.0.0.1`. Never `0.0.0.0` by default. |
@@ -300,7 +383,14 @@ webhookd --version
 --secret-env STRIPE_WEBHOOK_SECRET
 ```
 
-This means: read the secret value from the environment variable named `STRIPE_WEBHOOK_SECRET`. The secret value itself never appears in a flag.
+This means: read the secret value from the environment variable named
+`STRIPE_WEBHOOK_SECRET`. The secret value itself never appears in a flag.
+
+When `--secret-env` is empty (`""`, the default), the subcommand for a
+provider may supply a conventional default variable name — for example, the
+`github` subcommand defaults to `GITHUB_WEBHOOK_SECRET`. The default is
+declared in the provider's `cmd/<name>.go`, not in the core. The core only
+knows what it is told via `--secret-env`.
 
 ### Config resolution order
 
@@ -309,6 +399,30 @@ This means: read the secret value from the environment variable named `STRIPE_WE
 2. Environment variable
 3. Built-in default
 ```
+
+### `--list`
+
+Prints the name of every registered provider, one per line, to stdout, in
+the order returned by `providers.All()`. Exits 0.
+
+```
+github
+mock
+slack
+stripe
+```
+
+### `--version`
+
+Prints a single line to stdout and exits 0.
+
+```
+webhookd v0.1.0
+```
+
+The version string is injected at build time via
+`-ldflags "-X main.version=..."`. When unset (a plain `go build`), the
+value is `dev` and the line reads `webhookd dev`.
 
 ---
 
@@ -326,6 +440,33 @@ webhookd github | jq '.payload.repository.full_name'
 ```
 
 Startup messages and errors on stderr never contaminate the data stream.
+
+### Diagnostic formats
+
+Two diagnostic lines have fixed formats. Everything else on stderr is
+free-form and not a contract.
+
+**Startup banner** — printed once at startup, to stderr:
+
+```
+webhookd v0.1.0 — listening on 127.0.0.1:8080, endpoint POST /mock
+```
+
+The version is the same string as `--version`. The endpoint is
+`<host>:<port>` followed by `POST` and the resolved path.
+
+**Failed verification** — printed once per rejected request, to stderr:
+
+```
+webhookd: github: signature mismatch — 203.0.113.4
+```
+
+The format is `webhookd: <provider>: <reason> — <remote-ip>`. The remote IP
+is taken from `r.RemoteAddr` with the port stripped. `X-Forwarded-For` is not
+consulted — it is attacker-controlled unless webhookd is behind a trusted
+proxy, and webhookd makes no assumption that it is.
+
+The `<reason>` is the provider's own error string, verbatim.
 
 ---
 
@@ -350,7 +491,7 @@ webhookd github --pretty
 ```
 
 ```
-GitHub
+github
 ──────────────────────────────────────
 ✓ Signature verified
 
@@ -363,7 +504,13 @@ Received:     2026-09-15T19:44:03Z
 }
 ```
 
-Pretty output goes to stdout so it can be redirected. Startup info still goes to stderr.
+The provider line is the lowercase identifier returned by `Name()`. The core
+does not know how to title-case it — `github` is not `GitHub` by any general
+rule, and hard-coding a display name per provider would violate the
+core/provider split.
+
+Pretty output goes to stdout so it can be redirected. Startup info still goes
+to stderr.
 
 ---
 
@@ -384,6 +531,10 @@ Response:
 
 Always returns 200. No dependency checks. No metrics. Nothing more.
 
+The version value is the same string as `--version` prints (without the
+`webhookd ` prefix and without the leading `v`). When unset at build time,
+the value is `dev`.
+
 ---
 
 ## The Mock Provider
@@ -402,6 +553,8 @@ The mock provider ships with the core. It exists for two purposes:
 ```
 
 Every test that exercises the server pipeline uses the mock provider.
+
+The mock provider has no secret. `--secret-env` is ignored for `mock`.
 
 ---
 
@@ -444,7 +597,7 @@ release:
 ## Dockerfile
 
 ```dockerfile
-FROM golang:1.23-alpine AS builder
+FROM golang:1.27-alpine AS builder
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
@@ -502,6 +655,23 @@ changelog:
 
 ---
 
+## Dependencies
+
+The core prefers the standard library. The only external dependency in the
+core is the CLI framework, `github.com/spf13/cobra`, used in `cmd/`. This is
+a deliberate choice: the CLI surface (subcommands, shared flags, `--help`,
+shell completion) is the one place where hand-rolled code would be more
+error-prone and more verbose than a small, widely used dependency.
+
+Providers must not add dependencies. A provider is standard-library-only —
+that is a rule, not a preference, because a provider runs on the request path
+and every dependency in that path is a supply-chain risk.
+
+The review criterion is: does the dependency earn its place on the request
+path or in the CLI? If not, it does not belong.
+
+---
+
 ## v0.1 Acceptance Criteria
 
 The core is shippable when:
@@ -518,7 +688,9 @@ The core is shippable when:
 - [ ] Read and write timeouts are set
 - [ ] Default bind is `127.0.0.1`
 - [ ] `--list` prints registered providers
+- [ ] `--version` prints the version
 - [ ] `--pretty` produces human-readable output
+- [ ] Startup banner and failed-verification formats match this document
 - [ ] Health endpoint returns 200
 - [ ] `make check` passes clean
 - [ ] Single binary builds for all five platforms
@@ -530,10 +702,13 @@ The core is shippable when:
 
 ## What Ships After Core
 
-Once the core is tagged and released, providers follow as separate PRs. Each provider is independent. The order is:
+Once the core is tagged and released, providers follow as separate PRs. Each
+provider is independent. The order is:
 
 1. `providers/github` — simplest verification scheme, good first provider
 2. `providers/stripe` — timestamp validation adds complexity
 3. `providers/slack` — base string construction is the tricky part
+4. `providers/shopify` — base64-encoded HMAC, no timestamp
 
-Community can pick up any of these or add new ones. The core does not need to change for any of them.
+Community can pick up any of these or add new ones. The core does not need to
+change for any of them.

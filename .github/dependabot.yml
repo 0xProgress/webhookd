@@ -8,8 +8,10 @@ updates:
     commit-message:
       prefix: "chore"
     ignore:
-      # webhookd uses standard library only in core.
-      # Any new dependency is a signal to review carefully.
+      # Major-version bumps are never automatic. The dependency surface
+      # is small — cobra in cmd/, plus its transitive deps pflag and
+      # mousetrap — and any new require entry is a decision that should
+      # be reviewed, not merged by a bot.
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
 

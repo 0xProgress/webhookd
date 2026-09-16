@@ -1,0 +1,50 @@
+version: 2
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+archives:
+  - formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+# dockers_v2 replaced dockers + docker_manifests. It runs a single
+# `docker buildx build` per image, producing a multi-arch manifest
+# without intermediate per-arch tags. GoReleaser stages every artifact
+# for the target platform under $TARGETPLATFORM/ in a temporary build
+# context, which is what the Dockerfile copies from.
+#
+# Images are built and pushed in the publish phase, not the build
+# phase. `goreleaser build` and `goreleaser release --skip=publish`
+# do not produce images.
+dockers_v2:
+  - images:
+      - ghcr.io/0xprogress/webhookd
+    tags:
+      - "{{.Version}}"
+      - latest
+    platforms:
+      - linux/amd64
+      - linux/arm64
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
