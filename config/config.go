@@ -124,7 +124,11 @@ func Load(cmd *cobra.Command, providerName string) (*Config, error) {
 	cfg.Port = port
 
 	// --host
-	cfg.Host = stringValue(cmd, "host", EnvPrefix+"HOST", DefaultHost)
+	host := stringValue(cmd, "host", EnvPrefix+"HOST", DefaultHost)
+	if strings.TrimSpace(host) == "" {
+		return nil, errors.New("config: host cannot be empty")
+	}
+	cfg.Host = host
 
 	// --path
 	defaultPath := "/" + providerName

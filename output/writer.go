@@ -25,6 +25,9 @@ type Writer struct {
 
 // NewWriter returns a Writer that emits to w.
 func NewWriter(w io.Writer) *Writer {
+	if w == nil {
+		w = io.Discard
+	}
 	return &Writer{w: w}
 }
 

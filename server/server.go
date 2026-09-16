@@ -72,7 +72,9 @@ type Server struct {
 // requests.
 func New(opts Options) *Server {
 	mux := http.NewServeMux()
-	mux.Handle(opts.Path, opts.Handler)
+	if opts.Handler != nil && opts.Path != "" {
+		mux.Handle(opts.Path, opts.Handler)
+	}
 	mux.Handle("/health", newHealthHandler(normalizeVersion(opts.Version)))
 
 	return &Server{

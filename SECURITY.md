@@ -38,5 +38,4 @@ signature verification. The following are always in scope:
 
 ## Out of Scope
 
-- Vulnerabilities in community providers not maintained in this repo
 - Issues requiring the attacker to already have the webhook secret
