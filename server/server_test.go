@@ -156,10 +156,19 @@ func postJSON(t *testing.T, ts *testServer, sig, body string) *http.Response {
 	return resp
 }
 
-// drainBody reads and closes the response body.
+func closeBody(t *testing.T, resp *http.Response) {
+	t.Helper()
+	if resp == nil || resp.Body == nil {
+		return
+	}
+	if err := resp.Body.Close(); err != nil {
+		t.Fatalf("close response body: %v", err)
+	}
+}
+
+// drainBody reads the response body.
 func drainBody(t *testing.T, resp *http.Response) string {
 	t.Helper()
-	defer func() { _ = resp.Body.Close() }()
 	b, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatal(err)
@@ -176,6 +185,7 @@ func TestVerified_JSONLOutput(t *testing.T) {
 	const body = `{"type":"order.created","id":"evt_abc123","data":{"amount":4200}}`
 
 	resp := postJSON(t, ts, "valid", body)
+	defer closeBody(t, resp)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
@@ -223,6 +233,7 @@ func TestMethodNotAllowed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer closeBody(t, resp)
 	if resp.StatusCode != http.StatusMethodNotAllowed {
 		t.Fatalf("status = %d, want 405", resp.StatusCode)
 	}
@@ -246,6 +257,7 @@ func TestUnsupportedContentType(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer closeBody(t, resp)
 	if resp.StatusCode != http.StatusUnsupportedMediaType {
 		t.Fatalf("status = %d, want 415", resp.StatusCode)
 	}
@@ -269,6 +281,7 @@ func TestContentTypeWithCharset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer closeBody(t, resp)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
@@ -280,6 +293,7 @@ func TestBodyTooLarge(t *testing.T) {
 	// A 2KB body against a 1KB limit.
 	body := `{"pad":"` + strings.Repeat("a", 2048) + `"}`
 	resp := postJSON(t, ts, "valid", body)
+	defer closeBody(t, resp)
 	if resp.StatusCode != http.StatusRequestEntityTooLarge {
 		t.Fatalf("status = %d, want 413", resp.StatusCode)
 	}
@@ -294,6 +308,7 @@ func TestBodyTooLarge(t *testing.T) {
 func TestMissingSignature(t *testing.T) {
 	ts := newTestServer(t)
 	resp := postJSON(t, ts, "", `{"type":"test"}`)
+	defer closeBody(t, resp)
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", resp.StatusCode)
 	}
@@ -312,6 +327,7 @@ func TestMissingSignature(t *testing.T) {
 func TestWrongSignature(t *testing.T) {
 	ts := newTestServer(t)
 	resp := postJSON(t, ts, "invalid", `{"type":"test"}`)
+	defer closeBody(t, resp)
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", resp.StatusCode)
 	}
@@ -330,6 +346,7 @@ func TestWrongSignature(t *testing.T) {
 func TestMalformedJSON(t *testing.T) {
 	ts := newTestServer(t)
 	resp := postJSON(t, ts, "valid", `{`)
+	defer closeBody(t, resp)
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500", resp.StatusCode)
 	}
@@ -344,6 +361,7 @@ func TestMalformedJSON(t *testing.T) {
 func TestUnknownProvider(t *testing.T) {
 	ts := newTestServer(t, withProviderName("nonexistent"))
 	resp := postJSON(t, ts, "valid", `{"type":"test"}`)
+	defer closeBody(t, resp)
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", resp.StatusCode)
 	}
@@ -362,6 +380,7 @@ func TestPayloadPreserved(t *testing.T) {
 	// the original request bytes rather than re-serialized from a map.
 	const body = `{"z":1,"a":2,"big":9007199254740993,"dup":1,"dup":2}`
 	resp := postJSON(t, ts, "valid", body)
+	defer closeBody(t, resp)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
@@ -381,6 +400,7 @@ func TestPayloadCompacted(t *testing.T) {
 	// of the request body.
 	const body = "{\n  \"z\": 1,\n  \"a\": 2\n}"
 	resp := postJSON(t, ts, "valid", body)
+	defer closeBody(t, resp)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
@@ -403,6 +423,7 @@ func TestPayloadHTMLNotEscaped(t *testing.T) {
 	// provider sent.
 	const body = `{"msg":"<script>&</script>"}`
 	resp := postJSON(t, ts, "valid", body)
+	defer closeBody(t, resp)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
@@ -420,6 +441,7 @@ func TestHealth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer closeBody(t, resp)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
@@ -438,6 +460,7 @@ func TestHealthMethodNotAllowed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer closeBody(t, resp)
 	if resp.StatusCode != http.StatusMethodNotAllowed {
 		t.Fatalf("status = %d, want 405", resp.StatusCode)
 	}
