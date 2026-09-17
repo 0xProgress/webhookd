@@ -24,10 +24,14 @@ run:
   tests: true
 
 linters:
+  default: standard
   enable:
     - bodyclose
     - gosec
     - misspell
+
+formatters:
+  enable:
     - gofmt
     - goimports
 
