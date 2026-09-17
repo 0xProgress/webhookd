@@ -47,7 +47,7 @@ brew install 0xProgress/tap/webhookd
 go install github.com/0xProgress/webhookd@latest
 ```
 
-Requires Go 1.27.0 or later.
+Requires Go 1.25 or later.
 
 ### Docker
 
@@ -337,7 +337,7 @@ To report a vulnerability, see [SECURITY.md](SECURITY.md). Do not open a public 
 
 ## Build from source
 
-**Requirements:** Go 1.27.0+, `make`, optionally `golangci-lint`.
+**Requirements:** Go 1.25+, `make`, optionally `golangci-lint`.
 
 ```bash
 git clone https://github.com/0xProgress/webhookd

@@ -44,7 +44,7 @@ For providers specifically: check that an issue exists and is open before starti
 ## Development Setup
 
 **Requirements:**
-- Go 1.27.0 or later
+- Go 1.25 or later
 - `golangci-lint` — [install instructions](https://golangci-lint.run/usage/install/)
 - `make`
 
