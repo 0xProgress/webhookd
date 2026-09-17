@@ -14,6 +14,8 @@
 # The Makefile runs this via `golangci-lint run ./...`, as the `lint`
 # target. `make check` chains fmt → vet → lint → test.
 
+version: "2"
+
 run:
   # The default 1m timeout is tight for a cold CI run that includes
   # race-instrumented tests. 5m gives headroom without being effectively
