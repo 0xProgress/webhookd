@@ -143,7 +143,7 @@ func (s *Server) printBanner(addr string) {
 	if s.errOut == nil {
 		return
 	}
-	fmt.Fprintf(s.errOut, "webhookd %s — listening on %s, endpoint POST %s\n",
+	_, _ = fmt.Fprintf(s.errOut, "webhookd %s — listening on %s, endpoint POST %s\n",
 		s.version, addr, s.path)
 }
 
@@ -183,7 +183,7 @@ func newHealthHandler(version string) http.Handler {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write(body)
+		_, _ = w.Write(body)
 	})
 }
 

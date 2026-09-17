@@ -159,7 +159,7 @@ func postJSON(t *testing.T, ts *testServer, sig, body string) *http.Response {
 // drainBody reads and closes the response body.
 func drainBody(t *testing.T, resp *http.Response) string {
 	t.Helper()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	b, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatal(err)
@@ -465,7 +465,7 @@ func TestStartupBanner(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Listen: %v", err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	want := fmt.Sprintf("webhookd v0.1.0 %s listening on %s, endpoint POST /mock\n",
 		emDash, ln.Addr().String())

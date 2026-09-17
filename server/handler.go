@@ -120,7 +120,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// docs/webhookd-core.md §"Diagnostic formats". Nothing is written
 	// to the event stream on a failed verification.
 	if err := provider.Verify(r, rawBody); err != nil {
-		fmt.Fprintf(h.errOut, "webhookd: %s — %s\n", err.Error(), remoteIP(r))
+		_, _ = fmt.Fprintf(h.errOut, "webhookd: %s — %s\n", err.Error(), remoteIP(r))
 		writeError(w, http.StatusUnauthorized, errSigVerificationFailed)
 		return
 	}
@@ -160,12 +160,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// written to the event stream, and the client learns the request
 	// was not recorded.
 	if h.out == nil {
-		fmt.Fprintf(h.errOut, "webhookd: write event: nil EventWriter\n")
+		_, _ = fmt.Fprintf(h.errOut, "webhookd: write event: nil EventWriter\n")
 		writeError(w, http.StatusInternalServerError, errInternal)
 		return
 	}
 	if err := h.out.Write(event); err != nil {
-		fmt.Fprintf(h.errOut, "webhookd: write event: %v\n", err)
+		_, _ = fmt.Fprintf(h.errOut, "webhookd: write event: %v\n", err)
 		writeError(w, http.StatusInternalServerError, errInternal)
 		return
 	}
@@ -212,5 +212,5 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	w.Write(body)
+	_, _ = w.Write(body)
 }
