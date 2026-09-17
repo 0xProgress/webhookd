@@ -27,9 +27,9 @@ jobs:
           cache: true
       - name: Run go vet
         run: go vet ./...
-      - uses: golangci/golangci-lint-action@2226d7cb06a077cd73e56eedd38eecad18e5d837 # v6.5.0
+      - uses: golangci/golangci-lint-action@v9
         with:
-          version: latest
+          version: v2.5.0
           args: --timeout=5m
 
   test:
