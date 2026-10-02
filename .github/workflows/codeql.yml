@@ -28,7 +28,7 @@ jobs:
           go-version-file: "go.mod"
           cache: true
 
-      - uses: github/codeql-action/init@42c378ffbb438be29e3e1848d520fb0a8ee1c271 # v3.38.0
+      - uses: github/codeql-action/init@faaca9a8f6edddba5725ffe5adefdab6669a2eca # v3.38.0
         with:
           languages: go
           # Extend with security-and-quality for a broader ruleset
